@@ -1,3 +1,2 @@
 @echo off
-chcp 65001 >nul
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Mode_Decalquage.ps1"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0Mode_Decalquage.ps1"

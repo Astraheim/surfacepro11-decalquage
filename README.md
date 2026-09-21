@@ -9,11 +9,14 @@ grille légère optionnelle pour t'aider à cadrer ton dessin.
 
 - 🖼️ **Choisir une image** (JPG, PNG, BMP, GIF) à afficher sur l'écran
 - 🔆 **Régler la luminosité** de l'écran directement depuis l'interface
-- 🔒 **Désactiver le tactile** le temps du décalquage (pour poser ta feuille et ta main sans bouger l'image)
+- ✋ **Redimensionner au doigt** en tirant les bords de la fenêtre, **ou avec la barre tactile « Taille de l'image »** (glisse n'importe où dessus, pas besoin de viser un petit curseur) — le tactile reste actif tant que tu n'as pas verrouillé
+- 🖌️ **Rendu net, pas pixélisé** : haute qualité d'affichage + interface mise à l'échelle manuellement pour les écrans haute résolution (DPI) de la Surface Pro
+- 🆘 **Touche ECHAP** : ferme tout et réactive le tactile immédiatement, même si l'écran affiche un souci d'affichage — plus besoin d'Alt+F4
+- 🔒 **Un bouton clair « Verrouiller + désactiver le tactile »** une fois l'image bien placée : la fenêtre devient fixe et l'écran ne réagit plus au toucher
 - 🔄 **Verrouiller l'orientation** de l'écran (évite les rotations intempestives)
-- ⛶ **Image en plein écran** : ajustable/redimensionnable dans un premier temps, puis verrouillable en un clic
-- 📐 **Grille légère optionnelle**, espacement réglable, pour t'aider à te repérer
+- 📐 **Grille légère optionnelle**, avec une taille de case réglable en pixels (aide au cadrage), et une explication affichée directement dans l'interface
 - 📌 **Position et taille de l'image parfaitement fixes** une fois verrouillées
+- 🪟 **Aucune fenêtre PowerShell visible** au lancement — seule l'interface graphique s'affiche
 - Un bouton **« Retour au mode normal »** qui réactive le tactile et restaure les réglages d'origine
 
 ## 🚀 Installation
@@ -27,19 +30,27 @@ grille légère optionnelle pour t'aider à cadrer ton dessin.
 
 ## ▶️ Utilisation
 
-1. Double-clique sur **`Mode_Decalquage.bat`**.
+1. Double-clique sur **`Mode_Decalquage.bat`** (aucune fenêtre noire ne s'affiche, seule l'interface apparaît).
 2. Accepte la demande de droits administrateur (nécessaire pour désactiver le tactile).
 3. Dans la fenêtre :
    - clique sur **Choisir...** pour sélectionner ton image ;
    - ajuste la **luminosité** si besoin ;
    - coche **Verrouiller l'orientation** et/ou **Afficher une grille légère** si tu le souhaites ;
-   - clique sur **ACTIVER LE MODE DÉCALQUAGE**.
-4. L'image s'ouvre dans une fenêtre redimensionnable : ajuste sa taille et sa
-   position avec la souris, puis clique sur **📌 Verrouiller taille et
-   position** dans la petite barre d'outils flottante.
-5. Pose ta feuille sur l'écran et dessine.
-6. Pour tout arrêter : ferme la barre d'outils (**✕ Fermer l'image**) puis
-   clique sur **RETOUR AU MODE NORMAL** dans la fenêtre principale.
+   - clique sur **🖼️ AFFICHER L'IMAGE**. *(le tactile reste actif à cette étape)*
+4. L'image s'ouvre dans une fenêtre : **redimensionne-la et positionne-la
+   directement au doigt** (bords/coins), comme n'importe quelle fenêtre
+   Windows, jusqu'à ce qu'elle soit bien cadrée sur ta feuille.
+5. Clique sur le gros bouton vert **🔒 VERROUILLER + DÉSACTIVER LE TACTILE**
+   dans la petite barre d'outils flottante : la fenêtre devient fixe et le
+   tactile est coupé.
+6. Pose ta feuille sur l'écran et dessine.
+7. Pour tout arrêter : clique sur **RETOUR AU MODE NORMAL** dans la fenêtre
+   principale (le tactile est automatiquement réactivé même si tu fermes
+   juste la fenêtre image).
+
+> 💡 Besoin de rajuster l'image après l'avoir verrouillée ? Clique sur le
+> même bouton (devenu **🔓 Déverrouiller**) : le tactile est réactivé le
+> temps de repositionner l'image, puis reverrouille normalement.
 
 > ⚠️ Le réglage de luminosité agit sur l'écran interne (via WMI) : il peut ne
 > pas fonctionner sur un écran externe non compatible DDC/CI.
