@@ -181,6 +181,38 @@ function Restore-TouchIfNeeded {
     $script:locked = $false
 }
 
+function Set-ZoomValue([int]$val) {
+    $val = [Math]::Max(10,[Math]::Min(200,$val))
+    $script:imageScale = $val / 100.0
+    if ($script:lblZoomVal -and -not $script:lblZoomVal.IsDisposed) { $script:lblZoomVal.Text = "$val %" }
+    if ($script:imagePanel -and -not $script:imagePanel.IsDisposed) { $script:imagePanel.Invalidate() }
+}
+
+function Toggle-ToolbarCollapse {
+    if (-not $script:toolbarForm -or $script:toolbarForm.IsDisposed) { return }
+    $wa2 = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    if ($script:toolbarExpanded) {
+        foreach ($c in $script:toolbarOtherControls) { $c.Visible = $false }
+        $script:toolbarForm.ClientSize = New-Object Drawing.Size($script:toolbarForm.ClientSize.Width, $script:toolbarCollapsedH)
+        if ($script:btnCollapseRef) { $script:btnCollapseRef.Text = "Agrandir v" }
+        $script:toolbarExpanded = $false
+    } else {
+        foreach ($c in $script:toolbarOtherControls) { $c.Visible = $true }
+        if ($script:toolbarExpandedSize) { $script:toolbarForm.ClientSize = $script:toolbarExpandedSize }
+        if ($script:btnCollapseRef) { $script:btnCollapseRef.Text = "Reduire ^" }
+        $script:toolbarExpanded = $true
+    }
+    $script:toolbarForm.Left = $wa2.X + $wa2.Width - $script:toolbarForm.Width - 20
+    Bring-ToolbarToFront
+}
+
+function Bring-ToolbarToFront {
+    if ($script:toolbarForm -and -not $script:toolbarForm.IsDisposed) {
+        $script:toolbarForm.TopMost = $false
+        $script:toolbarForm.TopMost = $true
+    }
+}
+
 function Set-Touch([bool]$Enable) {
     $devices = @(Get-TouchDevices)
     if ($devices.Count -eq 0) {
@@ -231,6 +263,17 @@ function Set-Brightness([int]$Level) {
     try { (Get-WmiObject -Namespace root\wmi -Class WmiMonitorBrightnessMethods -ErrorAction Stop).WmiSetBrightness(1, $Level) | Out-Null }
     catch {}
 }
+# Règle la luminosité PUIS relit la vraie valeur matérielle : évite tout
+# désynchronisage entre le % affiché et l'écran réel (pilote/luminosité
+# adaptative pouvant arrondir ou ignorer la valeur demandée).
+function Nudge-Brightness([int]$delta) {
+    $target = [Math]::Max(5,[Math]::Min(100,$script:currentBrightness + $delta))
+    Set-Brightness $target
+    Start-Sleep -Milliseconds 150
+    $real = Get-CurrentBrightness
+    $script:currentBrightness = $real
+    return $real
+}
 
 # ============================================================
 #  ROTATION D'ÉCRAN
@@ -256,9 +299,19 @@ $script:locked           = $false
 $script:lockedBounds     = $null
 $script:showGrid         = $false
 $script:gridSpacing      = 50
+$script:gridThickness    = 2
 $script:imageScale       = 1.0
 $script:touchLockedByUs  = $false
 $script:closingInProgress = $false
+$script:brightSupported  = Get-BrightnessSupported
+$script:currentBrightness = if ($script:brightSupported) { [Math]::Max(5,(Get-CurrentBrightness)) } else { 100 }
+$script:lblZoomVal       = $null
+$script:lblBrightToolVal = $null
+$script:toolbarExpanded  = $true
+$script:toolbarExpandedSize = $null
+$script:toolbarCollapsedH   = 60
+$script:toolbarOtherControls = @()
+$script:btnCollapseRef   = $null
 
 # ============================================================
 #  FENÊTRE IMAGE + BARRE D'OUTILS FLOTTANTE
@@ -310,27 +363,32 @@ function Open-ImageWindow {
             $g.CompositingQuality = 'HighQuality'
 
             if ($script:currentImage) {
-                $img = $script:currentImage
-                $ratioImg = $img.Width / $img.Height
-                $ratioBox = $s.Width / $s.Height
-                if ($ratioImg -gt $ratioBox) {
-                    $fitW = $s.Width
-                    $fitH = [int]($s.Width / $ratioImg)
-                } else {
-                    $fitH = $s.Height
-                    $fitW = [int]($s.Height * $ratioImg)
-                }
-                $drawW = [Math]::Max(1,[int]($fitW * $script:imageScale))
-                $drawH = [Math]::Max(1,[int]($fitH * $script:imageScale))
-                $drawX = [int](($s.Width  - $drawW) / 2)
-                $drawY = [int](($s.Height - $drawH) / 2)
-                $g.DrawImage($img, $drawX, $drawY, $drawW, $drawH)
+                try {
+                    $img = $script:currentImage
+                    $ratioImg = $img.Width / $img.Height
+                    $ratioBox = $s.Width / $s.Height
+                    if ($ratioImg -gt $ratioBox) {
+                        $fitW = $s.Width
+                        $fitH = [int]($s.Width / $ratioImg)
+                    } else {
+                        $fitH = $s.Height
+                        $fitW = [int]($s.Height * $ratioImg)
+                    }
+                    $drawW = [Math]::Max(1,[int]($fitW * $script:imageScale))
+                    $drawH = [Math]::Max(1,[int]($fitH * $script:imageScale))
+                    $drawX = [int](($s.Width  - $drawW) / 2)
+                    $drawY = [int](($s.Height - $drawH) / 2)
+                    $g.DrawImage($img, $drawX, $drawY, $drawW, $drawH)
+                } catch {}
             }
             if ($script:showGrid) {
-                $pen = New-Object Drawing.Pen ([Drawing.Color]::FromArgb(70,255,255,255)), 1
-                for ($x = 0; $x -lt $s.Width; $x += $script:gridSpacing) { $g.DrawLine($pen,$x,0,$x,$s.Height) }
-                for ($y = 0; $y -lt $s.Height; $y += $script:gridSpacing) { $g.DrawLine($pen,0,$y,$s.Width,$y) }
-                $pen.Dispose()
+                try {
+                    $thick = [Math]::Max(1,[int]$script:gridThickness)
+                    $pen = New-Object Drawing.Pen ([Drawing.Color]::FromArgb(190,124,92,255)), $thick
+                    for ($x = 0; $x -lt $s.Width; $x += $script:gridSpacing) { $g.DrawLine($pen,$x,0,$x,$s.Height) }
+                    for ($y = 0; $y -lt $s.Height; $y += $script:gridSpacing) { $g.DrawLine($pen,0,$y,$s.Width,$y) }
+                    $pen.Dispose()
+                } catch {}
             }
         } catch {}
     })
@@ -356,7 +414,13 @@ function Open-ImageWindow {
     $imgForm.Add_KeyDown({
         param($s,$e)
         if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { Close-ImageWindow }
+        elseif ($e.Control -and $e.KeyCode -eq [System.Windows.Forms.Keys]::M) { Toggle-ToolbarCollapse }
     })
+    # Toucher/cliquer l'image amène naturellement imgForm au premier plan,
+    # ce qui passe la barre d'outils DERRIÈRE elle (deux fenêtres "TopMost"
+    # se disputent le dessus). On la reforce systématiquement au-dessus.
+    $imgForm.Add_Activated({ Bring-ToolbarToFront })
+    $panel.Add_MouseDown({ Bring-ToolbarToFront })
 
     $script:imgForm = $imgForm
     $script:imagePanel = $panel
@@ -373,14 +437,19 @@ function Open-ImageWindow {
     $toolbar.BackColor = $C_BG
     $toolbar.Font = New-Object Drawing.Font("Segoe UI",9)
 
+    # --- Bouton Réduire/Agrandir : toujours visible, même replié, pour
+    #     libérer l'écran en plein écran sans perdre l'accès aux outils ---
+    $btnCollapse = New-Btn "Reduire ^" 110 30 175 8 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 8 $true
+    $toolbar.Controls.Add($btnCollapse)
+
     $lblHelp = New-Object System.Windows.Forms.Label
-    $lblHelp.Text = "1. Redimensionne la fenetre (bords) ou`n    fais glisser la barre ci-dessous`n2. Verrouille quand c'est bon"
+    $lblHelp.Text = "1. Redimensionne la fenetre (bords)`n2. Ajuste avec les boutons ci-dessous`n3. Verrouille quand c'est bon"
     $lblHelp.ForeColor = $C_SUBTEXT
     $lblHelp.AutoSize = $true
-    $lblHelp.Location = New-Object Drawing.Point(15,12)
+    $lblHelp.Location = New-Object Drawing.Point(15,46)
     $toolbar.Controls.Add($lblHelp)
 
-    $btnFullscreen = New-Btn "Ajuster au plein ecran" 270 34 15 75 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 9 $false
+    $btnFullscreen = New-Btn "Ajuster au plein ecran" 270 34 15 108 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 9 $false
     $btnFullscreen.Add_Click({
         if (-not $script:locked) {
             $wa2 = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
@@ -389,81 +458,78 @@ function Open-ImageWindow {
     })
     $toolbar.Controls.Add($btnFullscreen)
 
+    # --- Taille de l'image : boutons +/- (fiables au tactile, contrairement
+    #     à un curseur à glisser dont le tracé se perd facilement au doigt) ---
     $lblZoom = New-Object System.Windows.Forms.Label
-    $lblZoom.Text = "Taille de l'image : 100 %"
+    $lblZoom.Text = "Taille de l'image"
     $lblZoom.ForeColor = $C_TEXT
     $lblZoom.AutoSize = $true
-    $lblZoom.Location = New-Object Drawing.Point(15,122)
+    $lblZoom.Location = New-Object Drawing.Point(15,155)
     $toolbar.Controls.Add($lblZoom)
 
-    # --- Curseur tactile personnalisé : toute la barre est cliquable/
-    #     glissable (plus fiable au doigt qu'un curseur natif, dont le
-    #     petit "plot" est difficile à attraper avec le tactile). ---
-    $ZOOM_MIN = 10
-    $ZOOM_MAX = 200
-    $zoomBar = New-Object SmoothPanel
-    $zoomBar.Size = New-Object Drawing.Size(270,36)
-    $zoomBar.Location = New-Object Drawing.Point(15,146)
-    $zoomBar.BackColor = [Drawing.Color]::FromArgb(255,50,50,90)
-    $zoomBar.Cursor = [System.Windows.Forms.Cursors]::Hand
-    $script:zoomDragging = $false
+    $lblZoomVal = New-Object System.Windows.Forms.Label
+    $lblZoomVal.Text = "100 %"
+    $lblZoomVal.ForeColor = $C_TEXT
+    $lblZoomVal.Font = New-Object Drawing.Font("Segoe UI",13,[Drawing.FontStyle]::Bold)
+    $lblZoomVal.TextAlign = 'MiddleCenter'
+    $lblZoomVal.Size = New-Object Drawing.Size(120,40)
+    $lblZoomVal.Location = New-Object Drawing.Point(90,178)
+    $toolbar.Controls.Add($lblZoomVal)
+    $script:lblZoomVal = $lblZoomVal
 
-    $updateZoomFromX = {
-        param($panelWidth,$xPos)
-        $ratio = [Math]::Max(0.0,[Math]::Min(1.0, $xPos / [double]$panelWidth))
-        $val = [int]($ZOOM_MIN + $ratio * ($ZOOM_MAX - $ZOOM_MIN))
-        $script:imageScale = $val / 100.0
-        $lblZoom.Text = "Taille de l'image : $val %"
-        $zoomBar.Invalidate()
-        if ($script:imagePanel -and -not $script:imagePanel.IsDisposed) { $script:imagePanel.Invalidate() }
-    }
+    $btnZoomMinus = New-Btn "-" 70 40 15 178 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 16 $true
+    $btnZoomMinus.Add_Click({ Set-ZoomValue ([int]($script:imageScale*100) - 5) })
+    $toolbar.Controls.Add($btnZoomMinus)
 
-    $zoomBar.Add_Paint({
-        param($s,$e)
-        try {
-            $ratio = ($script:imageScale * 100 - $ZOOM_MIN) / [double]($ZOOM_MAX - $ZOOM_MIN)
-            $ratio = [Math]::Max(0.0,[Math]::Min(1.0,$ratio))
-            $fillW = [int]($s.Width * $ratio)
-            $brush = New-Object Drawing.SolidBrush($C_ACCENT)
-            $e.Graphics.FillRectangle($brush, 0, 0, $fillW, $s.Height)
-            $brush.Dispose()
-        } catch {}
-    })
-    $zoomBar.Add_MouseDown({
-        param($s,$e)
-        $script:zoomDragging = $true
-        $s.Capture = $true
-        & $updateZoomFromX $s.Width $e.X
-    })
-    $zoomBar.Add_MouseMove({
-        param($s,$e)
-        if ($script:zoomDragging) { & $updateZoomFromX $s.Width $e.X }
-    })
-    $zoomBar.Add_MouseUp({
-        param($s,$e)
-        $script:zoomDragging = $false
-        $s.Capture = $false
-    })
-    $toolbar.Controls.Add($zoomBar)
+    $btnZoomPlus = New-Btn "+" 70 40 215 178 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 16 $true
+    $btnZoomPlus.Add_Click({ Set-ZoomValue ([int]($script:imageScale*100) + 5) })
+    $toolbar.Controls.Add($btnZoomPlus)
 
-    $btnReset = New-Btn "Reinitialiser (100 %)" 270 28 15 190 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_SUBTEXT 8 $false
-    $btnReset.Add_Click({
-        $script:imageScale = 1.0
-        $lblZoom.Text = "Taille de l'image : 100 %"
-        $zoomBar.Invalidate()
-        if ($script:imagePanel -and -not $script:imagePanel.IsDisposed) { $script:imagePanel.Invalidate() }
+    # --- Luminosité : disponible ici aussi, une fois l'image affichée
+    #     (le curseur de la fenêtre principale n'est plus accessible) ---
+    $lblBright = New-Object System.Windows.Forms.Label
+    $lblBright.Text = "Luminosite de l'ecran"
+    $lblBright.ForeColor = $C_TEXT
+    $lblBright.AutoSize = $true
+    $lblBright.Location = New-Object Drawing.Point(15,232)
+    $toolbar.Controls.Add($lblBright)
+
+    $lblBrightVal2 = New-Object System.Windows.Forms.Label
+    $lblBrightVal2.Text = "$($script:currentBrightness) %"
+    $lblBrightVal2.ForeColor = $C_TEXT
+    $lblBrightVal2.Font = New-Object Drawing.Font("Segoe UI",13,[Drawing.FontStyle]::Bold)
+    $lblBrightVal2.TextAlign = 'MiddleCenter'
+    $lblBrightVal2.Size = New-Object Drawing.Size(120,40)
+    $lblBrightVal2.Location = New-Object Drawing.Point(90,255)
+    $toolbar.Controls.Add($lblBrightVal2)
+    if (-not $script:brightSupported) { $lblBrightVal2.Text = "N/A" }
+
+    $btnBrightMinus = New-Btn "-" 70 40 15 255 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 16 $true
+    $btnBrightMinus.Enabled = $script:brightSupported
+    $btnBrightMinus.Add_Click({
+        $real = Nudge-Brightness -10
+        $lblBrightVal2.Text = "$real %"
     })
-    $toolbar.Controls.Add($btnReset)
+    $toolbar.Controls.Add($btnBrightMinus)
+
+    $btnBrightPlus = New-Btn "+" 70 40 215 255 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 16 $true
+    $btnBrightPlus.Enabled = $script:brightSupported
+    $btnBrightPlus.Add_Click({
+        $real = Nudge-Brightness 10
+        $lblBrightVal2.Text = "$real %"
+    })
+    $toolbar.Controls.Add($btnBrightPlus)
 
     $btnGrid = New-Object System.Windows.Forms.CheckBox
     $btnGrid.Text = "Grille legere"
     $btnGrid.ForeColor = $C_TEXT
+    $btnGrid.Checked = $script:showGrid
     $btnGrid.AutoSize = $true
-    $btnGrid.Location = New-Object Drawing.Point(15,228)
+    $btnGrid.Location = New-Object Drawing.Point(15,308)
     $btnGrid.Add_CheckedChanged({ $script:showGrid = $btnGrid.Checked; if ($script:imagePanel) { $script:imagePanel.Invalidate() } })
     $toolbar.Controls.Add($btnGrid)
 
-    $btnLock = New-Btn "VERROUILLER + DESACTIVER LE TACTILE" 270 52 15 258 $C_LOCK $C_LOCK_DK ([Drawing.Color]::White) 9 $true
+    $btnLock = New-Btn "VERROUILLER + DESACTIVER LE TACTILE" 270 52 15 340 $C_LOCK $C_LOCK_DK ([Drawing.Color]::White) 9 $true
     $btnLock.Add_Click({
         if (-not $script:locked) {
             $script:lockedBounds = $script:imgForm.Bounds
@@ -486,18 +552,27 @@ function Open-ImageWindow {
     $toolbar.Controls.Add($btnLock)
 
     $lblSafety = New-Object System.Windows.Forms.Label
-    $lblSafety.Text = "Astuce : si l'ecran clignote en noir un instant, c'est`nle pilote tactile qui redemarre - attends 2-3 sec.`nBloque(e) ? Touche ECHAP annule tout, meme si l'ecran`nest noir."
+    $lblSafety.Text = "ECHAP = tout annuler. CTRL+M = replier/deplier`ncette barre, meme si elle est hors de vue."
     $lblSafety.ForeColor = $C_SUBTEXT
     $lblSafety.Font = New-Object Drawing.Font("Segoe UI",7)
     $lblSafety.AutoSize = $true
-    $lblSafety.Location = New-Object Drawing.Point(15,314)
+    $lblSafety.Location = New-Object Drawing.Point(15,396)
     $toolbar.Controls.Add($lblSafety)
 
-    $btnClose = New-Btn "Fermer l'image" 270 30 15 370 $C_STOP $C_STOP_DK ([Drawing.Color]::White) 9 $false
+    $btnClose = New-Btn "Fermer l'image" 270 30 15 428 $C_STOP $C_STOP_DK ([Drawing.Color]::White) 9 $false
     $btnClose.Add_Click({ Close-ImageWindow })
     $toolbar.Controls.Add($btnClose)
 
-    $toolbar.ClientSize = New-Object Drawing.Size(300,415)
+    $toolbar.ClientSize = New-Object Drawing.Size(300,474)
+
+    # --- Repli/dépli : réduit la barre à son seul bouton "Agrandir" pour
+    #     ne pas gêner le dessin en plein écran. Logique dans la fonction
+    #     globale Toggle-ToolbarCollapse (aussi appelable au clavier). ---
+    $script:toolbarExpanded = $true
+    $script:toolbarCollapsedH = $btnCollapse.Bottom + 15
+    $script:toolbarOtherControls = @($toolbar.Controls) | Where-Object { $_ -ne $btnCollapse }
+    $script:btnCollapseRef = $btnCollapse
+    $btnCollapse.Add_Click({ Toggle-ToolbarCollapse })
 
     $toolbar.Add_FormClosing({
         if ($script:closingInProgress) { return }
@@ -509,6 +584,7 @@ function Open-ImageWindow {
     $toolbar.Add_KeyDown({
         param($s,$e)
         if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { Close-ImageWindow }
+        elseif ($e.Control -and $e.KeyCode -eq [System.Windows.Forms.Keys]::M) { Toggle-ToolbarCollapse }
     })
 
     # --- Mise à l'échelle manuelle de la barre d'outils, PUIS on la
@@ -517,6 +593,8 @@ function Open-ImageWindow {
         $toolbar.Scale((New-Object Drawing.SizeF($script:UIScale,$script:UIScale)))
     }
     Apply-RoundedCorners $toolbar 10
+    $script:toolbarExpandedSize = New-Object Drawing.Size($toolbar.ClientSize.Width, $toolbar.ClientSize.Height)
+    $script:toolbarCollapsedH = [int]($script:toolbarCollapsedH * $script:UIScale)
     $toolbar.Location = New-Object Drawing.Point(($wa.X + $wa.Width - $toolbar.Width - 20), ($wa.Y + 20))
 
     $script:toolbarForm = $toolbar
@@ -530,7 +608,7 @@ function Open-ImageWindow {
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Mode Décalquage"
 $form.AutoScaleMode = 'None'
-$form.ClientSize = New-Object Drawing.Size(480,700)
+$form.ClientSize = New-Object Drawing.Size(480,725)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -589,28 +667,33 @@ $panBright = New-Panel 400 85 40 225
 $form.Controls.Add($panBright)
 foreach ($ctl in (New-Header "Luminosite de l'ecran" 15 10)) { $panBright.Controls.Add($ctl) }
 
-$brightSupported = Get-BrightnessSupported
 $trkBright = New-Object System.Windows.Forms.TrackBar
 $trkBright.Minimum = 5
 $trkBright.Maximum = 100
 $trkBright.TickFrequency = 10
 $trkBright.Size = New-Object Drawing.Size(290,40)
 $trkBright.Location = New-Object Drawing.Point(10,35)
-$trkBright.Value = if ($brightSupported) { [Math]::Max(5,(Get-CurrentBrightness)) } else { 100 }
-$trkBright.Enabled = $brightSupported
+$trkBright.Value = $script:currentBrightness
+$trkBright.Enabled = $script:brightSupported
 $panBright.Controls.Add($trkBright)
 
 $lblBrightVal = New-Object System.Windows.Forms.Label
-$lblBrightVal.Text = if ($brightSupported) { "$($trkBright.Value)%" } else { "N/A" }
+$lblBrightVal.Text = if ($script:brightSupported) { "$($trkBright.Value)%" } else { "N/A" }
 $lblBrightVal.ForeColor = $C_TEXT
 $lblBrightVal.Size = New-Object Drawing.Size(60,20)
 $lblBrightVal.Location = New-Object Drawing.Point(320,42)
 $panBright.Controls.Add($lblBrightVal)
 
-$trkBright.Add_ValueChanged({ try { $lblBrightVal.Text = "$($trkBright.Value)%"; Set-Brightness $trkBright.Value } catch {} })
+$trkBright.Add_ValueChanged({
+    try {
+        $lblBrightVal.Text = "$($trkBright.Value)%"
+        $script:currentBrightness = $trkBright.Value
+        Set-Brightness $trkBright.Value
+    } catch {}
+})
 
 # --- Panneau Options ---
-$panOpt = New-Panel 400 170 40 325
+$panOpt = New-Panel 400 195 40 325
 $form.Controls.Add($panOpt)
 foreach ($ctl in (New-Header "Options" 15 10)) { $panOpt.Controls.Add($ctl) }
 
@@ -660,11 +743,34 @@ $lblSpacingHelp.AutoSize = $true
 $lblSpacingHelp.Location = New-Object Drawing.Point(35,125)
 $panOpt.Controls.Add($lblSpacingHelp)
 
+$lblThick = New-Object System.Windows.Forms.Label
+$lblThick.Text = "Épaisseur des lignes :"
+$lblThick.ForeColor = $C_SUBTEXT
+$lblThick.AutoSize = $true
+$lblThick.Location = New-Object Drawing.Point(35,153)
+$panOpt.Controls.Add($lblThick)
+
+$numThick = New-Object System.Windows.Forms.NumericUpDown
+$numThick.Minimum = 1
+$numThick.Maximum = 6
+$numThick.Value = 2
+$numThick.Size = New-Object Drawing.Size(60,22)
+$numThick.Location = New-Object Drawing.Point(220,151)
+$numThick.Add_ValueChanged({ $script:gridThickness = [int]$numThick.Value; if ($script:imagePanel) { $script:imagePanel.Invalidate() } })
+$panOpt.Controls.Add($numThick)
+
+$lblThickUnit = New-Object System.Windows.Forms.Label
+$lblThickUnit.Text = "px"
+$lblThickUnit.ForeColor = $C_SUBTEXT
+$lblThickUnit.AutoSize = $true
+$lblThickUnit.Location = New-Object Drawing.Point(285,153)
+$panOpt.Controls.Add($lblThickUnit)
+
 # --- Bouton principal : afficher l'image (tactile encore actif) ---
-$start = New-Btn "AFFICHER L'IMAGE   (tactile encore actif)" 400 55 40 515 $C_ACCENT $C_ACCENT_DK ([Drawing.Color]::White) 11 $true
+$start = New-Btn "AFFICHER L'IMAGE   (tactile encore actif)" 400 55 40 540 $C_ACCENT $C_ACCENT_DK ([Drawing.Color]::White) 11 $true
 $start.Add_Click({
     Set-Awake $true
-    if ($brightSupported) { Set-Brightness $trkBright.Value }
+    if ($script:brightSupported) { Set-Brightness $trkBright.Value }
     if ($chkOrientation.Checked) { Lock-Orientation $true }
 
     if (-not $script:imagePath) {
@@ -676,7 +782,7 @@ $start.Add_Click({
 $form.Controls.Add($start)
 
 # --- Bouton secondaire : désactiver le tactile seul, sans image ---
-$btnTouchOnly = New-Btn "Désactiver uniquement le tactile (sans image)" 400 34 40 580 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_SUBTEXT 8 $false
+$btnTouchOnly = New-Btn "Désactiver uniquement le tactile (sans image)" 400 34 40 605 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_SUBTEXT 8 $false
 $btnTouchOnly.Add_Click({
     Set-Touch $false
     Set-Awake $true
@@ -685,7 +791,7 @@ $btnTouchOnly.Add_Click({
 $form.Controls.Add($btnTouchOnly)
 
 # --- Bouton retour ---
-$stop = New-Btn "RETOUR AU MODE NORMAL" 400 55 40 624 $C_STOP $C_STOP_DK ([Drawing.Color]::White) 10 $true
+$stop = New-Btn "RETOUR AU MODE NORMAL" 400 55 40 649 $C_STOP $C_STOP_DK ([Drawing.Color]::White) 10 $true
 $stop.Add_Click({
     Set-Touch $true
     Set-Awake $false
