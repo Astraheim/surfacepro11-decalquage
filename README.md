@@ -1,57 +1,70 @@
-# 🖊️ SurfaceTrace — Tracing Mode for Surface Pro
+# 🖊️ SurfaceTrace — Mode Décalquage pour Surface Pro
 
-A small Windows tool (PowerShell + WinForms) that turns your Surface Pro into a digital lightbox for tracing: touch input can be disabled, the screen stays on, and an image of your choice is displayed fullscreen and perfectly fixed, with an optional lightweight grid to help you align your drawing.
+Petit outil Windows (PowerShell + WinForms) pour transformer ta Surface Pro
+en table à décalquer : le tactile est désactivé, l'écran reste allumé, et une
+image de ton choix s'affiche en plein écran, parfaitement fixe, avec une
+grille légère optionnelle pour t'aider à cadrer ton dessin.
 
-## ✨ Features
+## ✨ Fonctionnalités
 
-* 🖼️ **Choose an image** (JPG, PNG, BMP, GIF) to display on the screen
-* 🔆 **Adjust screen brightness** directly from the interface
-* ✋ **Resize the image with your finger** by dragging the window edges, **or using the "Image size" touch slider** (you can slide anywhere on it without having to aim for a tiny handle) — touch remains active until you lock the image
-* 🖌️ **Sharp, non-pixelated rendering**: high-quality image display + manually scaled interface for high-DPI Surface Pro screens
-* 🆘 **ESC key**: immediately closes everything and re-enables touch input, even if the display is experiencing an issue — no need for Alt+F4
-* 🔒 A clear **"Lock + Disable Touch"** button once the image is correctly positioned: the window becomes fixed and the screen no longer reacts to touch
-* 🔄 **Lock screen orientation** to prevent unwanted rotations
-* 📐 **Optional lightweight grid**, with an adjustable cell size in pixels to help with alignment, with an explanation displayed directly in the interface
-* 📌 **Image position and size remain perfectly fixed** once locked
-* 🪟 **No PowerShell window visible** at startup — only the graphical interface is displayed
-* A **"Return to Normal Mode"** button that re-enables touch input and restores the original settings
+- 🖼️ **Choisir une image** (JPG, PNG, BMP, GIF) à afficher sur l'écran
+- 🔆 **Régler la luminosité** de l'écran directement depuis l'interface
+- ✋ **Redimensionner au doigt** en tirant les bords de la fenêtre, **ou avec les boutons − / +** (par pas de 5 %, de 10 % à 200 %) — le tactile reste actif tant que tu n'as pas verrouillé
+- 🔆 **Luminosité accessible aussi une fois l'image affichée** (boutons − / + dans la barre d'outils, toujours synchronisés avec la vraie luminosité de l'écran)
+- 🖌️ **Rendu net, pas pixélisé** : haute qualité d'affichage + interface mise à l'échelle manuellement pour les écrans haute résolution (DPI) de la Surface Pro
+- 📂 **Barre d'outils repliable** : un bouton « Réduire » la ramène à une simple languette pour dégager l'écran ; elle reste toujours au premier plan même quand on touche l'image, et **Ctrl+M** la replie/déplie au clavier à tout moment
+- 📐 **Épaisseur de la grille réglable** (1 à 6 px), en plus de l'espacement déjà présent
+- 🆘 **Touche ECHAP** : ferme tout et réactive le tactile immédiatement, même si l'écran affiche un souci d'affichage — plus besoin d'Alt+F4
+- 🔒 **Un bouton clair « Verrouiller + désactiver le tactile »** une fois l'image bien placée : la fenêtre devient fixe et l'écran ne réagit plus au toucher
+- 🔄 **Verrouiller l'orientation** de l'écran (évite les rotations intempestives)
+- 📐 **Grille légère optionnelle**, avec une taille de case réglable en pixels (aide au cadrage), et une explication affichée directement dans l'interface
+- 📌 **Position et taille de l'image parfaitement fixes** une fois verrouillées
+- 🪟 **Aucune fenêtre PowerShell visible** au lancement — seule l'interface graphique s'affiche
+- Un bouton **« Retour au mode normal »** qui réactive le tactile et restaure les réglages d'origine
 
 ## 🚀 Installation
 
-1. Download this repository (`Code > Download ZIP`) or clone it:
-
+1. Télécharge ce dépôt (`Code > Download ZIP`) ou clone-le :
    ```bash
-   git clone https://github.com/<your-account>/surfacetrace.git
+   git clone https://github.com/<ton-compte>/surfacetrace.git
    ```
-2. Place the `Mode_Decalquage.ps1` and `Mode_Decalquage.bat` files in the
-   same folder on your Surface Pro.
+2. Place les fichiers `Mode_Decalquage.ps1` et `Mode_Decalquage.bat` dans le
+   même dossier sur ta Surface Pro.
 
-## ▶️ Usage
+## ▶️ Utilisation
 
-1. Double-click **`Mode_Decalquage.bat`** (no black console window will appear; only the interface will be displayed).
-2. Accept the administrator permission request (required to disable touch input).
-3. In the main window:
+1. Double-clique sur **`Mode_Decalquage.bat`** (aucune fenêtre noire ne s'affiche, seule l'interface apparaît).
+2. Accepte la demande de droits administrateur (nécessaire pour désactiver le tactile).
+3. Dans la fenêtre :
+   - clique sur **Choisir...** pour sélectionner ton image ;
+   - ajuste la **luminosité** si besoin ;
+   - coche **Verrouiller l'orientation** et/ou **Afficher une grille légère** si tu le souhaites ;
+   - clique sur **🖼️ AFFICHER L'IMAGE**. *(le tactile reste actif à cette étape)*
+4. L'image s'ouvre dans une fenêtre : **redimensionne-la et positionne-la
+   directement au doigt** (bords/coins), comme n'importe quelle fenêtre
+   Windows, jusqu'à ce qu'elle soit bien cadrée sur ta feuille.
+5. Clique sur le gros bouton vert **🔒 VERROUILLER + DÉSACTIVER LE TACTILE**
+   dans la petite barre d'outils flottante : la fenêtre devient fixe et le
+   tactile est coupé.
+6. Pose ta feuille sur l'écran et dessine.
+7. Pour tout arrêter : clique sur **RETOUR AU MODE NORMAL** dans la fenêtre
+   principale (le tactile est automatiquement réactivé même si tu fermes
+   juste la fenêtre image).
 
-   * click **Choose...** to select your image;
-   * adjust the **brightness** if needed;
-   * enable **Lock orientation** and/or **Show lightweight grid** if desired;
-   * click **🖼️ DISPLAY IMAGE**. *(touch input remains active at this stage)*
-4. The image opens in a window: **resize and position it directly with your finger** (using the edges/corners), just like any normal Windows window, until it is correctly aligned with your sheet of paper.
-5. Click the large green **🔒 LOCK + DISABLE TOUCH** button in the floating toolbar: the window becomes fixed and touch input is disabled.
-6. Place your sheet of paper on the screen and start tracing.
-7. To stop everything: click **RETURN TO NORMAL MODE** in the main window (touch input is automatically re-enabled even if you simply close the image window).
+> 💡 Besoin de rajuster l'image après l'avoir verrouillée ? Clique sur le
+> même bouton (devenu **🔓 Déverrouiller**) : le tactile est réactivé le
+> temps de repositionner l'image, puis reverrouille normalement.
 
-> 💡 Need to adjust the image after locking it? Click the same button (now labelled **🔓 Unlock**): touch input is temporarily re-enabled so you can reposition the image, then lock it again normally.
+> ⚠️ Le réglage de luminosité agit sur l'écran interne (via WMI) : il peut ne
+> pas fonctionner sur un écran externe non compatible DDC/CI.
 
-> ⚠️ The brightness control affects the internal display through WMI: it may not work on an external display that does not support DDC/CI.
+## 🛠️ Prérequis
 
-## 🛠️ Requirements
+- Windows 11 (testé sur Surface Pro)
+- PowerShell (préinstallé avec Windows)
+- Droits administrateur (pour activer/désactiver le pilote tactile)
 
-* Windows 11 (tested on Surface Pro)
-(If you test the application on any other device, please contact me so I can update the list of compatible devices)
-* PowerShell (pre-installed with Windows)
-* Administrator privileges (required to enable/disable the touch driver)
+## 📄 Licence
 
-## 📄 License
-
-This project is distributed under the MIT License — feel free to modify and reuse it.
+Ce projet est distribué sous licence MIT — libre à toi de le modifier et de
+le réutiliser.
