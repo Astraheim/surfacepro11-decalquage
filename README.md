@@ -13,6 +13,7 @@ grille légère optionnelle pour t'aider à cadrer ton dessin.
 - 🔆 **Luminosité accessible aussi une fois l'image affichée** (boutons − / + dans la barre d'outils, toujours synchronisés avec la vraie luminosité de l'écran)
 - 🖌️ **Rendu net, pas pixélisé** : haute qualité d'affichage + interface mise à l'échelle manuellement pour les écrans haute résolution (DPI) de la Surface Pro
 - 📂 **Barre d'outils repliable** : un bouton « Réduire » la ramène à une simple languette pour dégager l'écran ; elle reste toujours au premier plan même quand on touche l'image, et **Ctrl+M** la replie/déplie au clavier à tout moment
+- 🌐 **Interface en 4 langues** (Français, English, Español, Deutsch) via un sélecteur en haut à droite de la fenêtre principale et de la barre d'outils
 - 📐 **Épaisseur de la grille réglable** (1 à 6 px), en plus de l'espacement déjà présent
 - 🆘 **Touche ECHAP** : ferme tout et réactive le tactile immédiatement, même si l'écran affiche un souci d'affichage — plus besoin d'Alt+F4
 - 🔒 **Un bouton clair « Verrouiller + désactiver le tactile »** une fois l'image bien placée : la fenêtre devient fixe et l'écran ne réagit plus au toucher
