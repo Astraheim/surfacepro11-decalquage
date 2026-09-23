@@ -26,6 +26,25 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+# Filet de securite global : la fenetre console etant cachee, une erreur
+# non geree n'importe ou dans l'appli partirait normalement dans le vide
+# sans le moindre signe. On l'affiche donc explicitement (une seule fois)
+# pour ne jamais rester bloque sans comprendre pourquoi.
+$script:globalErrorShown = $false
+try {
+    [System.Windows.Forms.Application]::SetUnhandledExceptionMode([System.Windows.Forms.UnhandledExceptionMode]::CatchException)
+} catch {}
+[System.Windows.Forms.Application]::add_ThreadException({
+    param($s,$e)
+    if (-not $script:globalErrorShown) {
+        $script:globalErrorShown = $true
+        [System.Windows.Forms.MessageBox]::Show(
+            "Erreur non geree detectee :`n`n$($e.Exception.GetType().FullName)`n$($e.Exception.Message)`n`n$($e.Exception.StackTrace)",
+            "Erreur", "OK", "Error"
+        ) | Out-Null
+    }
+})
+
 $script:UIScale = 1.0
 try {
     $sysDpi = [DpiHelper]::GetDpiForSystem()
@@ -114,6 +133,10 @@ $script:I18N = @{
         lbl_spacing = "Taille des cases de la grille :"
         lbl_spacing_help = "= distance en pixels entre 2 lignes (petit nombre = grille plus serree)"
         lbl_thickness = "Epaisseur des lignes :"
+        lbl_spacing_short = "Espacement"
+        lbl_thickness_short = "Epaisseur"
+        lbl_color = "Couleur de la grille :"
+        lbl_color_short = "Couleur"
         btn_start = "AFFICHER L'IMAGE   (tactile encore actif)"
         btn_touch_only = "Desactiver uniquement le tactile (sans image)"
         btn_stop = "RETOUR AU MODE NORMAL"
@@ -152,6 +175,10 @@ $script:I18N = @{
         lbl_spacing = "Grid cell size:"
         lbl_spacing_help = "= distance in pixels between lines (smaller number = tighter grid)"
         lbl_thickness = "Line thickness:"
+        lbl_spacing_short = "Spacing"
+        lbl_thickness_short = "Thickness"
+        lbl_color = "Grid color:"
+        lbl_color_short = "Color"
         btn_start = "SHOW THE IMAGE   (touch still active)"
         btn_touch_only = "Disable touch only (no image)"
         btn_stop = "BACK TO NORMAL MODE"
@@ -190,6 +217,10 @@ $script:I18N = @{
         lbl_spacing = "Tamano de la cuadricula:"
         lbl_spacing_help = "= distancia en pixeles entre lineas (numero pequeno = cuadricula mas tupida)"
         lbl_thickness = "Grosor de las lineas:"
+        lbl_spacing_short = "Espaciado"
+        lbl_thickness_short = "Grosor"
+        lbl_color = "Color de la cuadricula:"
+        lbl_color_short = "Color"
         btn_start = "MOSTRAR LA IMAGEN   (tactil aun activo)"
         btn_touch_only = "Desactivar solo el tactil (sin imagen)"
         btn_stop = "VOLVER AL MODO NORMAL"
@@ -228,6 +259,10 @@ $script:I18N = @{
         lbl_spacing = "Rastergroesse:"
         lbl_spacing_help = "= Abstand in Pixel zwischen den Linien (kleinere Zahl = engeres Raster)"
         lbl_thickness = "Linienstaerke:"
+        lbl_spacing_short = "Abstand"
+        lbl_thickness_short = "Staerke"
+        lbl_color = "Rasterfarbe:"
+        lbl_color_short = "Farbe"
         btn_start = "BILD ANZEIGEN   (Touch noch aktiv)"
         btn_touch_only = "Nur Touch deaktivieren (ohne Bild)"
         btn_stop = "ZURUECK ZUM NORMALMODUS"
@@ -343,7 +378,7 @@ function Apply-RoundedCorners($container, $radius) {
     }
 }
 
-function New-Btn($text, $w, $h, $x, $y, $bg, $bgHover, $fg, $fontSize, $bold) {
+function New-Btn($text, $w, $h, $x, $y, $bg, $bgHover, $fg, $fontSize, $bold, [switch]$DynamicHover) {
     $b = New-Object System.Windows.Forms.Button
     $b.Text = $text
     $b.Size = New-Object Drawing.Size($w,$h)
@@ -356,8 +391,25 @@ function New-Btn($text, $w, $h, $x, $y, $bg, $bgHover, $fg, $fontSize, $bold) {
     $b.FlatAppearance.BorderSize = 0
     $b.Cursor = [System.Windows.Forms.Cursors]::Hand
     $b.TextAlign = 'MiddleCenter'
-    $b.Add_MouseEnter({ $b.BackColor = $bgHover }.GetNewClosure())
-    $b.Add_MouseLeave({ $b.BackColor = $bg }.GetNewClosure())
+    if ($DynamicHover) {
+        # Pour les boutons dont la couleur change dynamiquement en cours de
+        # vie (ex : echantillon de couleur de grille) : on ne fige JAMAIS
+        # $bg/$bgHover a la creation (ce qui causait le retour a l'ancienne
+        # couleur -violette par defaut- au survol apres un changement de
+        # couleur). A la place, on lit/memorise la vraie couleur courante
+        # au moment du survol, puis on la restaure telle quelle au depart.
+        $b.Add_MouseEnter({
+            $c = $b.BackColor
+            $b.Tag = $c
+            $b.BackColor = [Drawing.Color]::FromArgb($c.A, [Math]::Max(0,$c.R-30), [Math]::Max(0,$c.G-30), [Math]::Max(0,$c.B-30))
+        }.GetNewClosure())
+        $b.Add_MouseLeave({
+            if ($null -ne $b.Tag) { $b.BackColor = $b.Tag }
+        }.GetNewClosure())
+    } else {
+        $b.Add_MouseEnter({ $b.BackColor = $bgHover }.GetNewClosure())
+        $b.Add_MouseLeave({ $b.BackColor = $bg }.GetNewClosure())
+    }
     return $b
 }
 
@@ -414,14 +466,84 @@ function Set-ZoomValue([int]$val) {
 # cases a cocher (fenetre principale + barre d'outils) en phase l'une
 # avec l'autre, meme si l'utilisateur ne touche qu'une seule des deux.
 function Set-GridState([bool]$enabled) {
-    $script:showGrid = $enabled
-    if ($script:chkGridMainRef -and -not $script:chkGridMainRef.IsDisposed -and $script:chkGridMainRef.Checked -ne $enabled) {
-        $script:chkGridMainRef.Checked = $enabled
+    if ($script:updatingGridControls) { return }
+    $script:updatingGridControls = $true
+    try {
+        $script:showGrid = $enabled
+        if ($script:chkGridMainRef -and -not $script:chkGridMainRef.IsDisposed) { $script:chkGridMainRef.Checked = $enabled }
+        if ($script:btnGridRef -and -not $script:btnGridRef.IsDisposed) { $script:btnGridRef.Checked = $enabled }
+        Update-GridDisplay
+    } finally {
+        $script:updatingGridControls = $false
     }
-    if ($script:btnGridRef -and -not $script:btnGridRef.IsDisposed -and $script:btnGridRef.Checked -ne $enabled) {
-        $script:btnGridRef.Checked = $enabled
+}
+
+# Meme principe pour l'espacement, l'epaisseur et la couleur : une seule
+# fonction met a jour la variable partagee ET tous les controles des
+# DEUX menus (fenetre principale + barre d'outils flottante), avec un
+# garde-fou anti-recursion pour eviter toute boucle.
+function Set-GridSpacing([int]$val) {
+    $val = [Math]::Max(10,[Math]::Min(300,$val))
+    if ($script:updatingGridSpacing) { return }
+    $script:updatingGridSpacing = $true
+    try {
+        $script:gridSpacing = $val
+        if ($script:numSpacingRef -and -not $script:numSpacingRef.IsDisposed -and [int]$script:numSpacingRef.Value -ne $val) { $script:numSpacingRef.Value = $val }
+        if ($script:lblSpacingValRef -and -not $script:lblSpacingValRef.IsDisposed) { $script:lblSpacingValRef.Text = "$val px" }
+        # L'epaisseur ne peut jamais depasser la moitie de l'espacement :
+        # on met a jour la borne max du champ de la fenetre principale,
+        # puis on re-clamp l'epaisseur actuelle si besoin (ce qui se
+        # chargera lui-meme de rafraichir tous les affichages associes).
+        $newMaxThick = [Math]::Max(0,[Math]::Floor($val / 2.0))
+        if ($script:numThickRef -and -not $script:numThickRef.IsDisposed) { $script:numThickRef.Maximum = $newMaxThick }
+        Update-GridDisplay
+    } finally {
+        $script:updatingGridSpacing = $false
     }
-    Update-GridDisplay
+    if ($script:gridThickness -gt $newMaxThick) { Set-GridThickness $newMaxThick }
+}
+
+function Set-GridThickness([int]$val) {
+    $maxThick = [Math]::Max(0,[Math]::Floor($script:gridSpacing / 2.0))
+    $val = [Math]::Max(0,[Math]::Min($maxThick,$val))
+    if ($script:updatingGridThickness) { return }
+    $script:updatingGridThickness = $true
+    try {
+        $script:gridThickness = $val
+        if ($script:numThickRef -and -not $script:numThickRef.IsDisposed) {
+            if ($script:numThickRef.Maximum -ne $maxThick) { $script:numThickRef.Maximum = $maxThick }
+            if ([int]$script:numThickRef.Value -ne $val) { $script:numThickRef.Value = $val }
+        }
+        if ($script:lblThickValRef -and -not $script:lblThickValRef.IsDisposed) { $script:lblThickValRef.Text = "$val px" }
+        Update-GridDisplay
+    } finally {
+        $script:updatingGridThickness = $false
+    }
+}
+
+function Set-GridColor([Drawing.Color]$color) {
+    if ($script:updatingGridColor) { return }
+    $script:updatingGridColor = $true
+    try {
+        $script:gridColor = $color
+        if ($script:btnGridColorMainRef -and -not $script:btnGridColorMainRef.IsDisposed) { $script:btnGridColorMainRef.BackColor = $color }
+        if ($script:btnGridColorToolRef -and -not $script:btnGridColorToolRef.IsDisposed) { $script:btnGridColorToolRef.BackColor = $color }
+        Update-GridDisplay
+    } finally {
+        $script:updatingGridColor = $false
+    }
+}
+
+# Ouvre le selecteur de couleur Windows standard et applique le resultat
+# via Set-GridColor (donc synchronise automatiquement les deux menus).
+function Show-GridColorPicker {
+    $dlg = New-Object System.Windows.Forms.ColorDialog
+    $dlg.Color = $script:gridColor
+    $dlg.FullOpen = $true
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        Set-GridColor $dlg.Color
+    }
+    $dlg.Dispose()
 }
 
 function Update-GridDisplay {
@@ -578,6 +700,7 @@ $script:lockedBounds     = $null
 $script:showGrid         = $false
 $script:gridSpacing      = 50
 $script:gridThickness    = 2
+$script:gridColor        = [Drawing.Color]::FromArgb(255, 124, 92, 255)
 $script:imageScale       = 1.0
 $script:touchLockedByUs  = $false
 $script:closingInProgress = $false
@@ -594,6 +717,16 @@ $script:chkGridMainRef   = $null
 $script:btnGridRef       = $null
 $script:trkBrightRef     = $null
 $script:syncingBrightness = $false
+$script:updatingGridControls = $false
+$script:updatingGridSpacing  = $false
+$script:updatingGridThickness = $false
+$script:updatingGridColor    = $false
+$script:numSpacingRef       = $null
+$script:numThickRef         = $null
+$script:lblSpacingValRef    = $null
+$script:lblThickValRef      = $null
+$script:btnGridColorMainRef = $null
+$script:btnGridColorToolRef = $null
 
 # ============================================================
 #  FENETRE IMAGE + BARRE D'OUTILS FLOTTANTE
@@ -663,13 +796,12 @@ function Open-ImageWindow {
                     $g.DrawImage($img, $drawX, $drawY, $drawW, $drawH)
                 } catch {}
             }
-            if ($script:showGrid) {
+            if ($script:showGrid -and $script:gridThickness -gt 0) {
                 try {
-                    $thick = [Math]::Max(1,[int]$script:gridThickness)
-                    $penColor = [Drawing.Color]::FromArgb(255,124,92,255)
-                    $pen = New-Object Drawing.Pen($penColor, $thick)
-                    for ($x = 0; $x -lt $s.Width; $x += $script:gridSpacing) { $g.DrawLine($pen,$x,0,$x,$s.Height) }
-                    for ($y = 0; $y -lt $s.Height; $y += $script:gridSpacing) { $g.DrawLine($pen,0,$y,$s.Width,$y) }
+                    $thick = [int]$script:gridThickness
+                    $pen = New-Object Drawing.Pen($script:gridColor, [single]$thick)
+                    for ($x = 0; $x -lt $s.Width; $x += $script:gridSpacing) { $g.DrawLine($pen,[int]$x,0,[int]$x,$s.Height) }
+                    for ($y = 0; $y -lt $s.Height; $y += $script:gridSpacing) { $g.DrawLine($pen,0,[int]$y,$s.Width,[int]$y) }
                     $pen.Dispose()
                 } catch {}
             }
@@ -756,13 +888,26 @@ function Open-ImageWindow {
     $lblZoom.Location = New-Object Drawing.Point(15,155)
     $toolbar.Controls.Add($lblZoom)
 
-    $lblZoomVal = New-Object System.Windows.Forms.Label
+    # Champ editable : on peut taper directement le pourcentage voulu,
+    # tout en gardant les boutons -/+ de 5 % a cote.
+    $lblZoomVal = New-Object System.Windows.Forms.TextBox
     $lblZoomVal.Text = "100 %"
     $lblZoomVal.ForeColor = $C_TEXT
+    $lblZoomVal.BackColor = $C_PANEL
+    $lblZoomVal.BorderStyle = 'FixedSingle'
     $lblZoomVal.Font = New-Object Drawing.Font("Segoe UI",13,[Drawing.FontStyle]::Bold)
-    $lblZoomVal.TextAlign = 'MiddleCenter'
-    $lblZoomVal.Size = New-Object Drawing.Size(120,40)
-    $lblZoomVal.Location = New-Object Drawing.Point(90,178)
+    $lblZoomVal.TextAlign = 'Center'
+    $lblZoomVal.Size = New-Object Drawing.Size(120,36)
+    $lblZoomVal.Location = New-Object Drawing.Point(90,180)
+    $lblZoomVal.Add_Enter({ $lblZoomVal.SelectAll() }.GetNewClosure())
+    $lblZoomVal.Add_Leave({
+        $m = [regex]::Match($lblZoomVal.Text, '\d+')
+        if ($m.Success) { Set-ZoomValue ([int]$m.Value) } else { $lblZoomVal.Text = "$([int]($script:imageScale*100)) %" }
+    }.GetNewClosure())
+    $lblZoomVal.Add_KeyDown({
+        param($s,$e)
+        if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { $e.SuppressKeyPress = $true; $toolbar.SelectNextControl($s,$true,$true,$true,$true) | Out-Null }
+    }.GetNewClosure())
     $toolbar.Controls.Add($lblZoomVal)
     $script:lblZoomVal = $lblZoomVal
 
@@ -817,10 +962,94 @@ function Open-ImageWindow {
     $btnGrid.AutoSize = $true
     $btnGrid.Location = New-Object Drawing.Point(15,308)
     $script:btnGridRef = $btnGrid
-    $btnGrid.Add_CheckedChanged({ if ($btnGrid.Checked -ne $script:showGrid) { Set-GridState $btnGrid.Checked } })
+    $btnGrid.Add_CheckedChanged({
+        param($sender,$e)
+        Set-GridState $sender.Checked
+    })
     $toolbar.Controls.Add($btnGrid)
 
-    $btnLock = New-Btn (T "btn_lock") 270 52 15 340 $C_LOCK $C_LOCK_DK ([Drawing.Color]::White) 9 $true
+    # --- Espacement de la grille (barre d'outils) ---
+    $lblSpacingTool = New-Object System.Windows.Forms.Label
+    Reg-Text $lblSpacingTool "lbl_spacing_short" $true | Out-Null
+    $lblSpacingTool.ForeColor = $C_TEXT
+    $lblSpacingTool.AutoSize = $true
+    $lblSpacingTool.Location = New-Object Drawing.Point(15,336)
+    $toolbar.Controls.Add($lblSpacingTool)
+
+    # Champ editable : on peut taper directement la valeur voulue (les
+    # chiffres sont extraits du texte), tout en gardant les boutons -/+
+    # de 10 en 10 juste a cote pour l'usage tactile.
+    $lblSpacingVal = New-Object System.Windows.Forms.TextBox
+    $lblSpacingVal.Text = "$($script:gridSpacing) px"
+    $lblSpacingVal.ForeColor = $C_TEXT
+    $lblSpacingVal.BackColor = $C_PANEL
+    $lblSpacingVal.BorderStyle = 'FixedSingle'
+    $lblSpacingVal.Font = New-Object Drawing.Font("Segoe UI",11,[Drawing.FontStyle]::Bold)
+    $lblSpacingVal.TextAlign = 'Center'
+    $lblSpacingVal.Size = New-Object Drawing.Size(120,32)
+    $lblSpacingVal.Location = New-Object Drawing.Point(90,361)
+    $lblSpacingVal.Add_Enter({ $lblSpacingVal.SelectAll() }.GetNewClosure())
+    $lblSpacingVal.Add_Leave({
+        $m = [regex]::Match($lblSpacingVal.Text, '\d+')
+        if ($m.Success) { Set-GridSpacing ([int]$m.Value) } else { $lblSpacingVal.Text = "$($script:gridSpacing) px" }
+    }.GetNewClosure())
+    $lblSpacingVal.Add_KeyDown({
+        param($s,$e)
+        if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { $e.SuppressKeyPress = $true; $toolbar.SelectNextControl($s,$true,$true,$true,$true) | Out-Null }
+    }.GetNewClosure())
+    $toolbar.Controls.Add($lblSpacingVal)
+    $script:lblSpacingValRef = $lblSpacingVal
+
+    $btnSpacingMinus = New-Btn "-" 70 36 15 359 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 14 $true
+    $btnSpacingMinus.Add_Click({ Set-GridSpacing ($script:gridSpacing - 10) })
+    $toolbar.Controls.Add($btnSpacingMinus)
+
+    $btnSpacingPlus = New-Btn "+" 70 36 215 359 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 14 $true
+    $btnSpacingPlus.Add_Click({ Set-GridSpacing ($script:gridSpacing + 10) })
+    $toolbar.Controls.Add($btnSpacingPlus)
+
+    # --- Epaisseur de la grille (barre d'outils) ---
+    $lblThickTool = New-Object System.Windows.Forms.Label
+    Reg-Text $lblThickTool "lbl_thickness_short" $true | Out-Null
+    $lblThickTool.ForeColor = $C_TEXT
+    $lblThickTool.AutoSize = $true
+    $lblThickTool.Location = New-Object Drawing.Point(15,401)
+    $toolbar.Controls.Add($lblThickTool)
+
+    $lblThickVal = New-Object System.Windows.Forms.Label
+    $lblThickVal.Text = "$($script:gridThickness) px"
+    $lblThickVal.ForeColor = $C_TEXT
+    $lblThickVal.Font = New-Object Drawing.Font("Segoe UI",11,[Drawing.FontStyle]::Bold)
+    $lblThickVal.TextAlign = 'MiddleCenter'
+    $lblThickVal.Size = New-Object Drawing.Size(120,36)
+    $lblThickVal.Location = New-Object Drawing.Point(90,424)
+    $toolbar.Controls.Add($lblThickVal)
+    $script:lblThickValRef = $lblThickVal
+
+    $btnThickMinus = New-Btn "-" 70 36 15 424 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 14 $true
+    $btnThickMinus.Add_Click({ Set-GridThickness ($script:gridThickness - 1) })
+    $toolbar.Controls.Add($btnThickMinus)
+
+    $btnThickPlus = New-Btn "+" 70 36 215 424 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_TEXT 14 $true
+    $btnThickPlus.Add_Click({ Set-GridThickness ($script:gridThickness + 1) })
+    $toolbar.Controls.Add($btnThickPlus)
+
+    # --- Couleur de la grille (barre d'outils) : bouton-echantillon qui
+    #     ouvre le selecteur de couleur Windows standard. ---
+    $lblColorTool = New-Object System.Windows.Forms.Label
+    Reg-Text $lblColorTool "lbl_color_short" $true | Out-Null
+    $lblColorTool.ForeColor = $C_TEXT
+    $lblColorTool.AutoSize = $true
+    $lblColorTool.Location = New-Object Drawing.Point(15,466)
+    $toolbar.Controls.Add($lblColorTool)
+
+    $btnGridColorTool = New-Btn (T "btn_choose") 270 36 15 489 $script:gridColor ($script:gridColor) ([Drawing.Color]::White) 9 $true -DynamicHover
+    $btnGridColorTool.Add_Click({ Show-GridColorPicker })
+    $script:btnGridColorToolRef = $btnGridColorTool
+    $script:toolbarTextRefs += ,@{C=$btnGridColorTool;K="btn_choose"}
+    $toolbar.Controls.Add($btnGridColorTool)
+
+    $btnLock = New-Btn (T "btn_lock") 270 52 15 535 $C_LOCK $C_LOCK_DK ([Drawing.Color]::White) 9 $true
     $script:btnLockRef = $btnLock
     $btnLock.Add_Click({
         if (-not $script:locked) {
@@ -848,15 +1077,15 @@ function Open-ImageWindow {
     $lblSafety.ForeColor = $C_SUBTEXT
     $lblSafety.Font = New-Object Drawing.Font("Segoe UI",7)
     $lblSafety.AutoSize = $true
-    $lblSafety.Location = New-Object Drawing.Point(15,396)
+    $lblSafety.Location = New-Object Drawing.Point(15,599)
     $toolbar.Controls.Add($lblSafety)
 
-    $btnClose = New-Btn (T "btn_close_image") 270 30 15 428 $C_STOP $C_STOP_DK ([Drawing.Color]::White) 9 $false
+    $btnClose = New-Btn (T "btn_close_image") 270 30 15 631 $C_STOP $C_STOP_DK ([Drawing.Color]::White) 9 $false
     $script:toolbarTextRefs += ,@{C=$btnClose;K="btn_close_image"}
     $btnClose.Add_Click({ Close-ImageWindow })
     $toolbar.Controls.Add($btnClose)
 
-    $toolbar.ClientSize = New-Object Drawing.Size(300,474)
+    $toolbar.ClientSize = New-Object Drawing.Size(300,676)
 
     # --- Repli/depli : reduit la barre a son seul bouton "Agrandir" pour
     #     ne pas gener le dessin en plein ecran. Logique dans la fonction
@@ -892,6 +1121,12 @@ function Open-ImageWindow {
 
     $script:toolbarForm = $toolbar
     $imgForm.Text = T "title_img"
+    # Le "Owner" fait garder la barre d'outils automatiquement au-dessus
+    # de la fenetre image par Windows lui-meme, sans que le script ait a
+    # forcer le TopMost en permanence (ce qui pouvait, sur ecran tactile,
+    # avaler le tout premier clic sur un bouton/case de la barre d'outils
+    # pendant le va-et-vient de premier plan entre les deux fenetres).
+    $toolbar.Owner = $imgForm
     $imgForm.Show()
     $toolbar.Show()
 }
@@ -902,7 +1137,7 @@ function Open-ImageWindow {
 $form = New-Object System.Windows.Forms.Form
 $form.Text = T "app_title"
 $form.AutoScaleMode = 'None'
-$form.ClientSize = New-Object Drawing.Size(480,725)
+$form.ClientSize = New-Object Drawing.Size(480,765)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -1005,7 +1240,7 @@ $trkBright.Add_ValueChanged({
 })
 
 # --- Panneau Options ---
-$panOpt = New-Panel 400 195 40 325
+$panOpt = New-Panel 400 235 40 325
 $form.Controls.Add($panOpt)
 foreach ($ctl in (New-Header (T "hdr_options") 15 10)) { $panOpt.Controls.Add($ctl) }
 
@@ -1022,7 +1257,10 @@ $chkGridMain.ForeColor = $C_TEXT
 $chkGridMain.AutoSize = $true
 $chkGridMain.Location = New-Object Drawing.Point(15,70)
 $script:chkGridMainRef = $chkGridMain
-$chkGridMain.Add_CheckedChanged({ if ($chkGridMain.Checked -ne $script:showGrid) { Set-GridState $chkGridMain.Checked } })
+$chkGridMain.Add_CheckedChanged({
+    param($sender,$e)
+    Set-GridState $sender.Checked
+})
 $panOpt.Controls.Add($chkGridMain)
 
 $lblSpacing = New-Object System.Windows.Forms.Label
@@ -1038,7 +1276,11 @@ $numSpacing.Maximum = 300
 $numSpacing.Value = 50
 $numSpacing.Size = New-Object Drawing.Size(60,22)
 $numSpacing.Location = New-Object Drawing.Point(220,98)
-$numSpacing.Add_ValueChanged({ $script:gridSpacing = [int]$numSpacing.Value; Update-GridDisplay })
+$script:numSpacingRef = $numSpacing
+$numSpacing.Add_ValueChanged({
+    param($sender,$e)
+    Set-GridSpacing ([int]$sender.Value)
+})
 $panOpt.Controls.Add($numSpacing)
 
 $lblSpacingUnit = New-Object System.Windows.Forms.Label
@@ -1064,12 +1306,16 @@ $lblThick.Location = New-Object Drawing.Point(35,153)
 $panOpt.Controls.Add($lblThick)
 
 $numThick = New-Object System.Windows.Forms.NumericUpDown
-$numThick.Minimum = 1
-$numThick.Maximum = 6
+$numThick.Minimum = 0
+$numThick.Maximum = 25
 $numThick.Value = 2
 $numThick.Size = New-Object Drawing.Size(60,22)
 $numThick.Location = New-Object Drawing.Point(220,151)
-$numThick.Add_ValueChanged({ $script:gridThickness = [int]$numThick.Value; Update-GridDisplay })
+$script:numThickRef = $numThick
+$numThick.Add_ValueChanged({
+    param($sender,$e)
+    Set-GridThickness ([int]$sender.Value)
+})
 $panOpt.Controls.Add($numThick)
 
 $lblThickUnit = New-Object System.Windows.Forms.Label
@@ -1079,8 +1325,23 @@ $lblThickUnit.AutoSize = $true
 $lblThickUnit.Location = New-Object Drawing.Point(285,153)
 $panOpt.Controls.Add($lblThickUnit)
 
+# --- Couleur de la grille : bouton-echantillon qui ouvre le selecteur
+#     de couleur Windows standard, synchronise avec la barre d'outils. ---
+$lblColor = New-Object System.Windows.Forms.Label
+Reg-Text $lblColor "lbl_color" | Out-Null
+$lblColor.ForeColor = $C_SUBTEXT
+$lblColor.AutoSize = $true
+$lblColor.Location = New-Object Drawing.Point(35,185)
+$panOpt.Controls.Add($lblColor)
+
+$btnGridColorMain = New-Btn (T "btn_choose") 110 30 220 180 $script:gridColor ($script:gridColor) ([Drawing.Color]::White) 9 $true -DynamicHover
+$btnGridColorMain.Add_Click({ Show-GridColorPicker })
+$script:btnGridColorMainRef = $btnGridColorMain
+$script:textRefs += ,@{C=$btnGridColorMain;K="btn_choose"}
+$panOpt.Controls.Add($btnGridColorMain)
+
 # --- Bouton principal : afficher l'image (tactile encore actif) ---
-$start = New-Btn (T "btn_start") 400 55 40 540 $C_ACCENT $C_ACCENT_DK ([Drawing.Color]::White) 11 $true
+$start = New-Btn (T "btn_start") 400 55 40 580 $C_ACCENT $C_ACCENT_DK ([Drawing.Color]::White) 11 $true
 $script:textRefs += ,@{C=$start;K="btn_start"}
 $start.Add_Click({
     Set-Awake $true
@@ -1096,7 +1357,7 @@ $start.Add_Click({
 $form.Controls.Add($start)
 
 # --- Bouton secondaire : desactiver le tactile seul, sans image ---
-$btnTouchOnly = New-Btn (T "btn_touch_only") 400 34 40 605 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_SUBTEXT 8 $false
+$btnTouchOnly = New-Btn (T "btn_touch_only") 400 34 40 645 $C_PANEL ([Drawing.Color]::FromArgb(255,50,50,90)) $C_SUBTEXT 8 $false
 $script:textRefs += ,@{C=$btnTouchOnly;K="btn_touch_only"}
 $btnTouchOnly.Add_Click({
     Set-Touch $false
@@ -1106,7 +1367,7 @@ $btnTouchOnly.Add_Click({
 $form.Controls.Add($btnTouchOnly)
 
 # --- Bouton retour ---
-$stop = New-Btn (T "btn_stop") 400 55 40 649 $C_STOP $C_STOP_DK ([Drawing.Color]::White) 10 $true
+$stop = New-Btn (T "btn_stop") 400 55 40 689 $C_STOP $C_STOP_DK ([Drawing.Color]::White) 10 $true
 $script:textRefs += ,@{C=$stop;K="btn_stop"}
 $stop.Add_Click({
     Set-Touch $true
